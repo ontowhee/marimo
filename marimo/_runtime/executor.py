@@ -4,6 +4,7 @@ from __future__ import annotations
 import inspect
 import numbers
 import re
+import textwrap
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
@@ -95,6 +96,11 @@ class Executor(ABC):
         pass
 
 
+def get_source_code_from_cell(cell: CellImpl) -> str:
+
+    return source_code
+
+
 @register_execution_type("relaxed")
 class DefaultExecutor(Executor):
     @staticmethod
@@ -126,7 +132,45 @@ class DefaultExecutor(Executor):
         if cell.body is None:
             return None
         assert cell.last_expr is not None
-        exec(cell.body, glbls)
+        try:
+            exec(cell.body, glbls)
+        except Exception as e:
+            cell.cell_id
+            code_lines = cell.code.split('\n')
+            my_exception = e
+            my_traceback = e.__traceback__
+
+            # Traverse stack to look for __marimo__cell_<cell_id>_.py
+            # 1. show cell number/name, code line number, and code line
+            # 2. show original file name and line number
+
+            tb = e.__traceback__
+            while tb:
+                filename = f"__marimo__cell_{cell.cell_id}_.py"
+
+                if (
+                    tb.tb_next is None and
+                    filename in tb.tb_frame.f_code.co_filename
+                ):
+                    cell_lineno = tb.tb_frame.f_lineno
+
+                    cell_lines = cell.code.split('\n')
+                    offending_code = cell_lines[cell_lineno - 1]
+
+                    if cell._start_line:
+                        file_path = glbls['__file__']
+                        source_lineno = cell._start_line + cell_lineno - 1
+                        underline_str = "^" * len(offending_code)
+
+                        e.add_note(
+                            f"""  File "{file_path}", line {source_lineno}"""
+                            + f"\n    {offending_code}"
+                            + f"""\n    {underline_str}""")
+
+                tb = tb.tb_next
+
+            raise e
+
         return eval(cell.last_expr, glbls)
 
 
